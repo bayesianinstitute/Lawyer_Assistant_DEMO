@@ -4,25 +4,38 @@ import streamlit as st
 import os
 import time
 import tempfile
-
+import logging
+from colorlog import ColoredFormatter
 from PIL import Image
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger()
+handler = logging.StreamHandler()
+formatter = ColoredFormatter(
+    "[ %(log_color)s%(levelname)s%(reset)s ] %(message)s",
+    log_colors={
+        'DEBUG': 'cyan',
+        'INFO': 'green',
+        'WARNING': 'yellow',
+        'ERROR': 'red',
+        'CRITICAL': 'red,bg_white',
+    }
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+
 def init():
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    if "run" not in st.session_state:
-        st.session_state.run = None
-
-    if "file_ids" not in st.session_state:
-        st.session_state.file_ids = []
+    st.session_state.setdefault("messages", [])
+    st.session_state.setdefault("run", None)
+    st.session_state.setdefault("file_ids", [])
+    st.session_state.setdefault("thread_id", None)
     
-    if "thread_id" not in st.session_state:
-        st.session_state.thread_id = None
+
 
 def get_config():
     
@@ -41,16 +54,17 @@ def get_config():
 def assistant_handler(client, assistant_id):
     
     assistant = client.beta.assistants.retrieve(assistant_id)
-    print(assistant)
     model_option='gpt-4-1106-preview'
     assistant_instructions=assistant.instructions
     file_ids=assistant.file_ids
 
-
-
     return assistant, model_option, assistant_instructions,file_ids
 
-
+def check_run_status(client, thread_id, run_id):
+    # Check Run Status
+    run = client.beta.threads.runs.retrieve(run_id=run_id, thread_id=thread_id)
+    
+    return run.status
              
 def chat_prompt(client, assistant_id):
     if prompt := st.chat_input("Enter your message here"):
@@ -75,11 +89,11 @@ def chat_prompt(client, assistant_id):
         st.session_state.run = client.beta.threads.runs.create(
             thread_id=st.session_state.thread_id,
             assistant_id=assistant_id,
-            tools = [{"type": "code_interpreter"}],
+            
 
         )
         
-        print("Run_ID :",st.session_state.run)
+        logging.debug(f"Run_Status : {st.session_state.run.status}")
         pending = False
         while st.session_state.run.status != "completed":
             if not pending:
@@ -110,7 +124,6 @@ def chat_display(client):
                     if content.type == "text":
                         st.markdown(content.text.value)
                     elif content.type == "image_file":
-                        print("Image")
                         image_file = content.image_file.file_id
                         image_data = client.files.content(image_file)
                         image_data = image_data.read()
@@ -133,7 +146,7 @@ def main():
     st.session_state.current_assistant, st.session_state.model_option, st.session_state.assistant_instructions,st.session_state.file_ids = assistant_handler(client, assistant_id)
     if st.session_state.thread_id is None:
         st.session_state.thread_id = client.beta.threads.create().id
-        print("Thread-ID",st.session_state.thread_id)
+        logging.info(f"Thread-ID : {st.session_state.thread_id}")
     chat_prompt(client, assistant_id)
             
 
@@ -142,6 +155,6 @@ def main():
 if __name__ == '__main__':
     init()
     main() 
-    print("File ID",st.session_state.file_ids)
+    logging.info(f"File ID: {st.session_state.file_ids}")
 
 
